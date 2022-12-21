@@ -1,0 +1,72 @@
+---
+title: "Microbial assoication network"
+author: "Mansi"
+date: "6/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#load the packages
+library(devtools)
+library(SpiecEasi)
+library(phyloseq)
+library(seqtime)
+
+```
+
+
+```{r}
+#load the dataset
+input.path = "/Users/mansichandra/Desktop/PSU Research/SPIEC-EASI"
+output.path = "/Users/mansichandra/Desktop/PSU Research/SPIEC-EASI"
+biom.path = file.path(input.path, "TwinsUK_Batch3_OTU_table_w_tax_rarefied_10000_networks_json.biom")
+phyloseqobj = import_biom(biom.path)
+otus = otu_table(phyloseqobj)
+taxa = tax_table(phyloseqobj)
+```
+
+
+```{r}
+#filter the OTUs
+
+filterobj=filterTaxonMatrix(otus,minocc=20,keepSum = TRUE, return.filtered.indices = TRUE)
+otus.f=filterobj$mat
+taxa.f=taxa[setdiff(1:nrow(taxa),filterobj$filtered.indices),]
+dummyTaxonomy=c("k__dummy","p__","c__","o__","f__","g__","s__")
+taxa.f=rbind(taxa.f,dummyTaxonomy)
+rownames(taxa.f)[nrow(taxa.f)]="0"
+rownames(otus.f)[nrow(otus.f)]="0"
+
+```
+
+
+```{r}
+#assemble a new phyloseq object with the filtered OTU and taxonomy tables
+
+updatedotus=otu_table(otus.f, taxa_are_rows = TRUE)
+updatedtaxa=tax_table(taxa.f)
+phyloseqobj.f=phyloseq(updatedotus, updatedtaxa)
+
+```
+
+
+```{r}
+#run SPIEC-EASI
+spiec.out=spiec.easi(phyloseqobj.f, method="mb",icov.select.params=list(rep.num=20))
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
