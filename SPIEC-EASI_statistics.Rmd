@@ -1,0 +1,579 @@
+---
+title: "Microbial assoication network"
+author: "Mansi"
+date: "6/8/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#load the packages
+library(devtools)
+library(SpiecEasi)
+library(phyloseq)
+library(seqtime)
+library(igraph)
+library(dplyr)
+library(testit)
+library(RColorBrewer)
+library(flashClust)
+library(dynamicTreeCut)
+library(reshape2)
+library(parallel)
+library(viridis)
+library(ggplot2)
+```
+
+
+```{r}
+#load the dataset
+
+pval_file <- "/Users/mansichandra/Desktop/PSU Research/SPIEC-EASI/table_P_corrected_all_traits.txt"
+
+input.path = "/Users/mansichandra/Desktop/PSU Research/SPIEC-EASI"
+output.path = "/Users/mansichandra/Desktop/PSU Research/SPIEC-EASI"
+biom.path = file.path(input.path, "TwinsUK_Batch3_OTU_table_w_tax_rarefied_10000_networks_50_percent_presence_pruned_json.biom")
+pvals <- read.table(file = pval_file, header = TRUE, sep = "\t")
+
+```
+
+
+```{r}
+#Extract OTU table and taxonomy table
+
+phyloseqobj=import_biom(biom.path)
+otus=otu_table(phyloseqobj)
+taxa=tax_table(phyloseqobj)
+```
+
+
+```{r}
+#Filter the OTU table
+
+filterobj = filterTaxonMatrix(otus, minocc = 20, keepSum = TRUE, return.filtered.indices = TRUE)
+otus.f=filterobj$mat
+taxa.f=taxa[setdiff(1:nrow(taxa),filterobj$filtered.indices),]
+dummyTaxonomy=c("k__dummy","p__","c__","o__","f__","g__","s__")
+taxa.f=rbind(taxa.f,dummyTaxonomy)
+rownames(taxa.f)[nrow(taxa.f)]="0"
+rownames(otus.f)[nrow(otus.f)]="0"
+
+```
+
+
+```{r}
+#assemble a new phyloseq object with filtered OTU and taxonomy table
+
+updatedotus=otu_table(otus, taxa_are_rows = TRUE)
+updatedtaxa=tax_table(taxa)
+phyloseqobj.f=phyloseq(updatedotus, updatedtaxa)
+```
+
+
+```{r}
+#Run SPIEC-EASI (make model)
+
+spiec.out=spiec.easi(phyloseqobj.f, method="glasso",icov.select.params=list(rep.num=20))
+
+```
+
+```{r}
+se.cor  <- cov2cor(as.matrix(getOptCov(spiec.out)))
+weighted.adj.mat <- se.cor*getRefit(spiec.out)
+
+grph <- adj2igraph(weighted.adj.mat)
+
+plot(grph,vertex.size=1,
+     vertex.label=NA,
+     edge.width=1,
+     layout=layout.circle(grph))
+```
+
+```{r}
+weight_threshold <- 0.01
+grph <- delete.edges(grph,which(abs(E(grph)$weight)<weight_threshold))
+
+grph.pos <- delete.edges(grph,which(E(grph)$weight<0))
+plot(grph.pos,
+     vertex.label=NA,
+     edge.color="black",
+     layout=layout_with_fr(grph.pos))
+
+grph.pos <- delete.vertices(grph.pos,which(degree(grph.pos)<1))
+plot(grph.pos,
+     vertex.label=NA, 
+     edge.color="black",
+     layout=layout_with_fr(grph.pos))
+```
+
+
+```{r}
+dd.grph.pos <- degree.distribution(grph.pos)
+plot(0:(length(dd.grph.pos)-1), dd.grph.pos, type='b',
+      ylab="Frequency", xlab="Degree", main="Degree Distributions")
+
+```
+
+```{r}
+grph.pos_deg<-degree(grph.pos, v=V(grph.pos), mode="all")
+
+fine = 500 # this will adjust the resolving power.
+
+#this gives you the colors you want for every point
+graphCol = viridis(fine)[as.numeric(cut(grph.pos_deg,breaks = fine))]
+
+# now plot
+plot(grph.pos, vertex.color=graphCol,
+     edge.color="black",
+     vertex.label=NA,
+     layout=layout_with_fr(grph.pos))
+```
+
+
+```{r}
+grph.pos_bw<-betweenness(grph.pos, directed=F)
+
+#this gives you the colors you want for every point
+graphCol = viridis(fine)[as.numeric(cut(grph.pos_bw,breaks = fine))]
+
+# now plot
+plot(grph.pos, vertex.color=graphCol,
+     vertex.label=NA,
+     edge.color="black",
+     layout=layout_with_fr(grph.pos))
+
+
+
+
+```
+
+
+```{r}
+grph.pos_tran<-transitivity(grph.pos, type="local")
+grph.pos_tran
+```
+
+```{r}
+#this gives you the colors you want for every point
+graphCol = viridis(fine)[as.numeric(cut(grph.pos_tran,breaks = fine))]
+
+# now plot
+plot(grph.pos, vertex.color=graphCol,
+     vertex.label=NA,
+     edge.color="black",
+     layout=layout_with_fr(grph.pos))
+```
+
+
+```{r}
+grph.pos_tran_gl<-transitivity(grph.pos, type="global")
+grph.pos_tran_gl
+```
+
+```{r}
+grph.pos.greedy <- cluster_fast_greedy(grph.pos, weights=E(grph.pos)$weight)
+modularity(grph.pos.greedy)
+```
+
+```{r}
+sizes(grph.pos.greedy)
+
+colourCount = length(unique(grph.pos.greedy$membership)) # this will adjust the resolving power.
+
+cluster_col = rainbow(colourCount)[as.numeric(cut(grph.pos.greedy$membership,breaks = colourCount))]
+
+# now plot
+plot(grph.pos, vertex.color=cluster_col,
+     vertex.label=NA,
+     edge.color="black",
+     layout=layout_with_fr(grph.pos))
+```
+
+
+```{r}
+grph.pos.louvain <- cluster_louvain(grph.pos, weights=E(grph.pos)$weight)
+modularity(grph.pos.louvain)
+
+sizes(grph.pos.louvain)
+
+colourCount = length(unique(grph.pos.louvain$membership)) # this will adjust the resolving power.
+
+cluster_col = rainbow(colourCount)[as.numeric(cut(grph.pos.louvain$membership,breaks = colourCount))]
+
+# now plot
+plot(grph.pos, vertex.color=cluster_col,
+     vertex.label=NA,
+     edge.color="black",
+     layout=layout_with_fr(grph.pos))
+
+```
+
+
+```{r}
+grph_whole <- adj2igraph(weighted.adj.mat)
+grph_whole<-delete.edges(grph_whole,which(E(grph_whole)$weight<0))
+grph.whole.louvain <- cluster_louvain(grph_whole, weights=E(grph_whole)$weight)
+modularity(grph.whole.louvain)
+
+sizes(grph.whole.louvain)
+
+colourCount = length(unique(grph.whole.louvain$membership)) # this will adjust the resolving power.
+
+cluster_col = rainbow(colourCount)[as.numeric(cut(grph.whole.louvain$membership,breaks = colourCount))]
+
+# now plot
+plot(grph_whole, vertex.color=cluster_col,
+     vertex.label=NA,
+     edge.color="black",
+     layout=layout_with_fr(grph_whole))
+
+```
+
+
+```{r}
+V(grph.pos)$cluster=grph.pos.louvain$membership
+vertex_attr(grph.pos, index = V(grph.pos))
+
+ids <- which(sizes(grph.pos.louvain)<=2)
+grph.pos.main.communities <- delete_vertices(grph.pos,which(V(grph.pos)$cluster %in% ids))
+
+nodes <- V(grph.pos.main.communities)$name
+nodes
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+statme <- function(x) {
+  # Centrality
+  V(x)$degree      <- degree(x, mode = "total")
+  V(x)$betweenness <- betweenness(x)
+  V(x)$evcent      <- evcent(x)$vector
+  V(x)$closeness   <- closeness(x)
+  E(x)$ebetweenness <- edge.betweenness(x)
+  V(x)$transitivity <- transitivity(x, type = "local")
+  
+  # Local position
+  #V(x)$effsize     <- effective.size(x, mode = "all")
+  V(x)$constraint  <- constraint(x)
+  
+  # Clustering
+  com <- edge.betweenness.community(x)
+  V(x)$memb        <- com$membership
+  
+  # Whole network
+  set.graph.attribute(x, "density", graph.density(x))
+  set.graph.attribute(x, "avgpathlength", average.path.length(x))
+  set.graph.attribute(x, "modularity", modularity(com))
+  set.graph.attribute(x, "betcentralization", centralization.betweenness(x)$centralization)
+  set.graph.attribute(x, "degcentralization", centralization.degree(x, mode = "total")$centralization)
+  set.graph.attribute(x, "size", vcount(x))
+  set.graph.attribute(x, "edgecount", ecount(x))
+    
+  return(x)
+}
+
+# Function to calculate node levels statistics for all diseases:
+getTstatsNodes <- function(x, test) {
+	deg <- t.test(V(test)$degree ~ x)
+	bet <- t.test(V(test)$betweenness ~ x)
+	evc <- t.test(V(test)$evcent ~ x)
+	clo <- t.test(V(test)$closeness ~ x)
+	con <- t.test(V(test)$constraint ~ x)
+	
+		return(data.frame(degree = c(deg$p.value, deg$estimate), 
+		betweenness = c(bet$p.value, bet$estimate),
+		evcent = c(evc$p.value, evc$estimate),
+		closeness = c(clo$p.value, clo$estimate), 
+		constraint = c(con$p.value, con$estimate)))
+}
+
+tests <- c("degree", "betweenness", "evcent", "closeness", "contraint") # "transitivity"
+
+# Function to calculate the number of taxa that are both heritable and DA:
+myoverlap <- function(das, myheritsyo) {
+	length(which(myheritsyo == 1 & das == 1))
+}
+
+# Function to calculate enrichment p-value of the overlap between heritable and DA taxa:
+enrichment_of_DA_in_heritable_taxa <- function(das, myherits2) {
+	real_overlap <- myoverlap(das = das, myheritsyo = myherits2)
+
+	null_overlap <- rep(NA, 100)
+	for (i in 1:100) {
+		x <- sample(das, size = length(das), replace = FALSE)
+		null_overlap[i] <- myoverlap(das = x, myheritsyo = myherits2)
+	}
+
+	myp <- 1 - length(which(null_overlap < real_overlap))/length(null_overlap)
+	n_da <- length(which(das == 1))
+	n_herit <- length(which(myherits2 == 1))
+	c(myp, real_overlap, n_da, n_herit, length(myherits2))
+}
+
+# Function to calculate whether DA nodes co-occur more than healthy nodes:
+cooccurringNodes <- function(das, thecors) { 
+	# das is a vector of DA-nodes that are 0/1
+	# cormat is the correlation matrix
+		
+	thecors[thecors != 0 ] <- 1 # Remove all weights and just convert to 1
+	cors_disease_nodes <- thecors[as.logical(das), as.logical(das)]
+	actual_N_disease_associated_edges <- sum(cors_disease_nodes)
+
+	permutation_N_disease_associated_edges <- rep(NA, 1000)
+	for (i in 1:1000) {
+		fake_DA_nodes <- sample(das, size = length(das), replace = FALSE)
+		fake_cor_disease_nodes <- thecors[as.logical(fake_DA_nodes), as.logical(fake_DA_nodes)]
+		permutation_N_disease_associated_edges[i] <- sum(fake_cor_disease_nodes)
+	}
+
+	pval <- length(which(permutation_N_disease_associated_edges < actual_N_disease_associated_edges))/length(permutation_N_disease_associated_edges)	
+}
+	
+# Function to calculate the shortest paths between all pairs of nodes and compare DA to nonDA
+diseaseNodeShortestPaths <- function(das, D) { # D is the output of distances()
+	D[is.infinite(D)] <- 0
+	disease_dists <- D[as.logical(das), as.logical(das)]
+	
+	# Change infinite values to zero:
+	disease_path_length <- sum(disease_dists)
+
+	permutation_disease_path_lengths <- rep(NA, 1000)
+	for (i in 1:1000) {
+		fake_DA_nodes <- sample(das, size = length(das), replace = FALSE)
+		fake_cor_disease_nodes <- D[as.logical(fake_DA_nodes), as.logical(fake_DA_nodes)]
+		permutation_disease_path_lengths[i] <- sum(fake_cor_disease_nodes)
+	}
+	pval <- length(which(permutation_disease_path_lengths < disease_path_length))/length(permutation_disease_path_lengths)
+}
+
+# Function to do permutations rather than T-tests for node stats:
+permutation_p_for_nodes <- function(das, graph) {
+	actual.mean.da <- c(mean(V(graph)$degree[as.logical(das)]), 
+						mean(V(graph)$betweenness[as.logical(das)]),
+						mean(V(graph)$evcent[as.logical(das)]),
+						mean(V(graph)$closeness[as.logical(das)]),
+						mean(V(graph)$constraint[as.logical(das)], na.rm = TRUE))
+						# mean(V(graph)$transitivity[as.logical(das)], na.rm = TRUE))
+	actual.mean.nda <- c(mean(V(graph)$degree[!as.logical(das)]), 
+						mean(V(graph)$betweenness[!as.logical(das)]),
+						mean(V(graph)$evcent[!as.logical(das)]),
+						mean(V(graph)$closeness[!as.logical(das)]),
+						mean(V(graph)$constraint[!as.logical(das)], na.rm = TRUE))
+						#mean(V(graph)$transitivity[!as.logical(das)], na.rm = TRUE))
+	ts <- actual.mean.da - actual.mean.nda
+	nperm <- 100
+	perms <- matrix(NA, nrow = nperm, ncol = length(tests))
+	for (i in 1:nperm) {
+		fake_nodes <- sample(das, size = length(das), replace = FALSE)
+		perms[i, 1] <- mean(V(graph)$degree[as.logical(fake_nodes)]) - mean(V(graph)$degree[!as.logical(fake_nodes)])	
+		perms[i, 2] <- mean(V(graph)$betweenness[as.logical(fake_nodes)]) - mean(V(graph)$betweenness[!as.logical(fake_nodes)])	
+		perms[i, 3] <- mean(V(graph)$evcent[as.logical(fake_nodes)]) - mean(V(graph)$evcent[!as.logical(fake_nodes)])	
+		perms[i, 4] <- mean(V(graph)$closeness[as.logical(fake_nodes)]) - mean(V(graph)$closeness[!as.logical(fake_nodes)])	
+		perms[i, 5] <- mean(V(graph)$constraint[as.logical(fake_nodes)], na.rm = TRUE) - mean(V(graph)$constraint[!as.logical(fake_nodes)], na.rm = TRUE)	
+		#perms[i, 6] <- mean(V(graph)$transitivity[as.logical(fake_nodes)], na.rm = TRUE) - mean(V(graph)$transitivity[!as.logical(fake_nodes)], na.rm = TRUE)	
+	}
+
+	pvalues <- rep(NA, length(tests))
+	for (i in 1:length(tests)) {
+		pvalues[i] <- sum(abs(ts[i]) >= abs(perms[,i]))/nperm
+	}
+	return(pvalues)
+}
+
+doAllTheNetworkThings <- function(spiec.graph, da_taxa_tab, desc, thecors) 
+
+mygraph <- statme(spiec.graph)
+
+
+	# Calculate T-test Pvalues for a bunch of node associated stats
+	allTstats <- apply(da_taxa_tab, 2, getTstatsNodes, test = mygraph)
+
+	# Perform a sign test:
+	forSignTest <- lapply(allTstats, function(x) {
+		diffs <- x[3, ] - x[2, ] # If higher in cases, then 1
+		diffs <- ifelse(diffs < 0, 0, 1)
+	})
+
+	# Collapse into data.frame
+	forSignTest <- do.call(rbind, forSignTest)
+	rownames(forSignTest) <- colnames(da_taxa_tab)
+	
+	SignTestP <- apply(forSignTest, 2, function(x) {binom.test(sum(x), length(x))$p.value})
+	SignTestP <- cbind(tests, SignTestP)
+
+	# Save out files:
+	allTstats <- do.call(rbind, allTstats)
+	TstatsP <- allTstats[seq(from = 1, to = dim(allTstats)[1], by = 3), ]
+	TstatsP <- cbind(gsub("\\.", "", rownames(TstatsP)), TstatsP)
+	colnames(TstatsP)[1] <- "disease"
+	TstatsMeanControl <- allTstats[seq(from = 2, to = dim(allTstats)[1], by = 3), ]
+	TstatsMeanCase <- allTstats[seq(from = 3, to = dim(allTstats)[1], by = 3), ]
+	
+		# Run permutations for those node stats instead of Tstats
+	permTstatsP <- t(apply(da_taxa_tab, 2, permutation_p_for_nodes, graph = mygraph)) 
+	colnames(permTstatsP) <- tests
+
+	write.table(TstatsP, paste0(outpath, desc, "_table_P_Tstat_on_DA_nodes.txt"), sep="\t", row.names = FALSE, quote = FALSE)
+	write.table(TstatsMeanControl, paste0(outpath, desc, "_table_Tstat_mean_control_values.txt"), sep="\t", quote = FALSE)
+	write.table(TstatsMeanCase, paste0(outpath, desc, "_table_Tstat_mean_case_values.txt"), sep="\t", quote = FALSE)
+	write.table(forSignTest, paste0(outpath, desc, "_table_directions_for_sign_tests.txt"), sep="\t", quote = FALSE)
+	write.table(SignTestP, paste0(outpath, desc, "_table_P_sign_test.txt"), sep="\t", row.names = FALSE, quote = FALSE)
+	write.table(permTstatsP, paste0(outpath, desc, "_table_permutation_P_node_stats.txt"), sep = "\t", quote = FALSE)
+
+	
+		##### Are disease associated taxa enriched for heritable taxa?
+	inds <- match(gsub(";", ".", rownames(da_taxa_tab)), herits$Trait)
+
+	# remove any taxa that weren't tested for heritability
+	keepme <- which(!is.na(inds))
+	da_taxa_herit <- da_taxa_tab[keepme, ]
+
+	inds <- match(gsub(";", ".", rownames(da_taxa_herit)), herits$Trait)
+	assert(length(which(is.na(inds))) == 0)
+
+	# Pull out heritabilities for just the taxa in network study
+	myherits <- herits[inds, ]
+	assert(gsub(";", ".", row.names(da_taxa_herit)) == myherits$Trait)
+	amIHeritable <- ifelse(myherits$FDR_all < 0.05, 1, 0) # 1 if heritable, 0 if not
+
+	enr_of_heritable_taxa <- apply(da_taxa_herit, 2, enrichment_of_DA_in_heritable_taxa, myherits2 = amIHeritable)
+	rownames(enr_of_heritable_taxa) <- c("p-value", "n_overlapping_nodes", "n_disease_nodes", "n_heritable_nodes", "n_nodes_total")
+	write.table(t(enr_of_heritable_taxa), paste0(outpath, desc, "_table_enrichment_in_heritable_taxa.txt"), sep="\t", quote = FALSE)
+
+
+	##### Are disease associated nodes more likely to co-occur with each other than random chance?
+	cooccurringNodesP <- apply(da_taxa_tab, 2, cooccurringNodes, thecors = thecors)
+	padj <- p.adjust(cooccurringNodesP, method = "BH")
+	cooccurringNodesP <- data.frame(disese = colnames(da_taxa_tab), P = cooccurringNodesP, P_adjusted = padj)
+	write.table(cooccurringNodesP, paste0(outpath, desc, "_table_P_do_disease_node_co-occur_more_than_chance.txt"), sep="\t", quote = FALSE)
+
+
+	##### Are paths shorter between disease-associated nodes than non-DA nodes?
+	distances_weighted <- distances(mygraph) # length of shortest paths listed
+	distances_unweighted <- distances(mygraph, weights = NA) # unweighted path lengths
+
+	DAshortestPathPweighted <- apply(da_taxa_tab, 2, diseaseNodeShortestPaths, D = distances_weighted)
+	padj_weighted <- p.adjust(DAshortestPathPweighted, method = "BH")
+	DAshortestPathPunweighted <- apply(da_taxa_tab, 2, diseaseNodeShortestPaths, D = distances_unweighted)
+	padj_unweigthed <- p.adjust(DAshortestPathPunweighted, method = "BH")
+
+	distances_table_P <- data.frame(weighted = DAshortestPathPweighted, weighted_P_adjusted = padj_weighted, unweighted = DAshortestPathPunweighted, unweighted_P_adjusted = padj_unweigthed, row.names = colnames(da_taxa_tab))
+	write.table(distances_table_P, paste0(outpath, desc, "_table_are_shortest_paths_shorter_between_DA_nodes.txt"), sep="\t", quote = FALSE)
+
+	return(mygraph) # return the igraph object with calculated node info included
+}
+
+
+
+##### Create folder for output:
+if (!file.exists(outpath)) {
+	print(paste0("creating ",outpath," in filesystem"))
+	dir.create(file.path(outpath), recursive = TRUE)
+}
+
+
+
+##### Reformat tables and prune insignificant edges:
+pvals <- pvals[ , 2:ncol(pvals)]
+cors_pruned <- as.matrix(cors[ , 2:ncol(cors)])
+
+# Prune out insignificant edges:
+cors_pruned[which(pvals > 0.002, arr.ind = TRUE)] <- 0
+
+# Histogram of the correlations:
+pdf(paste0(outpath, "plot_histogram_of_correlations_before_pruning.pdf"))
+hist(cors_pruned)
+dump <- dev.off()
+
+# Prune out absolute value of correlations less than a certain value:
+cors_pruned[abs(cors_pruned) < cor_threshold] <- 0
+
+# Histogram of correlations after pruning:
+pdf(paste0(outpath, "plot_histogram_of_correlations_after_pruning.pdf"))
+hist(cors_pruned)
+dump <- dev.off()
+
+# And turn into an igraph object
+spieceasi.graph <- graph.adjacency(cors_pruned, mode = "undirected", weighted = TRUE)
+spieceasi.graph <- simplify(spieceasi.graph)
+
+
+```
+
+
+```{r}
+
+
+
+
+
+```
+
+```{r}
+#Convert the SPIEC-EASI output to a network and plot the network
+
+spiec.graph=adj2igraph(getRefit(spiec.out), vertex.attr=list(name=taxa_names(phyloseqobj.f)))
+
+plot_network(spiec.graph, phyloseqobj.f, type='taxa', color="Rank3", label=NULL)
+
+```
+
+
+```{r}
+#Generate regression matrix and calculate positive and negative edges 
+betaMat=as.matrix(symBeta(getOptBeta(spiec.out)))
+positive=length(betaMat[betaMat>0])/2 
+negative=length(betaMat[betaMat<0])/2 
+total=length(betaMat[betaMat!=0])/2 
+```
+
+
+```{r}
+
+otu.ids=colnames(spiec.out$data)
+edges=E(spiec.graph)
+edge.colors=c()
+for(e.index in 1:length(edges)){
+	adj.nodes=ends(spiec.graph,edges[e.index])
+	xindex=which(otu.ids==adj.nodes[1])
+	yindex=which(otu.ids==adj.nodes[2])
+	beta=betaMat[xindex,yindex]
+	if(beta>0){
+		edge.colors=append(edge.colors,"forestgreen")
+	}else if(beta<0){
+		edge.colors=append(edge.colors,"red")
+	}
+}
+E(spiec.graph)$color=edge.colors
+
+```
+
+
+```{r}
+clusters=cluster_fast_greedy(spiec.graph)
+clusterOneIndices=which(clusters$membership==1)
+clusterOneOtus=clusters$names[clusterOneIndices]
+clusterTwoIndices=which(clusters$membership==2)
+clusterTwoOtus=clusters$names[clusterTwoIndices]
+```
+
+
+```{r}
+sort(table(getTaxonomy(clusterOneOtus,taxa.f,useRownames = TRUE)),decreasing = TRUE)
+sort(table(getTaxonomy(clusterTwoOtus,taxa.f,useRownames = TRUE)),decreasing = TRUE)
+
+```
+
+
