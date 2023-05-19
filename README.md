@@ -1,6 +1,7 @@
-Network Modeling for Bacterial Communities
+# Network Modeling for Bacterial Communities
 
-file : Code for generating SPIEC-EASI network 
-This code file consists of a generic code for generating a SPIEC-EASI network for bacterial communities using 16S seqeuncing data 
+## File : SPIEC-EASI.rmd 
+This is an R code file that consists of a generic code for generating a SPIEC-EASI network for bacterial communities using 16S seqeuncing data. The code also consists of some algorithms to calculate network statistics properties like modularity, transitivity, centrality, etc.
 
-file: 
+## File: SPIEC-EASI.png
+This file consists of the network generated through the modeling technique
