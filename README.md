@@ -6,7 +6,7 @@ This repository is part of a summer project with **Dr. Emily Davenport** from **
 
 ## Files
 
-### 1. **[SPIEC-EASI.rmd](./SPIEC-EASI.rmd)**
+### 1. **[SPIEC-EASI.Rmd](./SPIEC-EASI.Rmd)**
 
 This R Markdown file contains the code for generating a **SPIEC-EASI network** for bacterial communities using **16S sequencing data**. It includes a generic workflow that can be used for network construction based on sequencing data.
 
@@ -16,7 +16,7 @@ This R Markdown file contains the code for generating a **SPIEC-EASI network** f
 
 ---
 
-### 2. **[SPIEC-EASI_statistics.rmd](./SPIEC-EASI_statistics.rmd)**
+### 2. **[SPIEC-EASI_statistics.Rmd](./SPIEC-EASI_statistics.Rmd)**
 
 This R Markdown file is still a work in progress. It contains algorithms to calculate and visualize important **network statistics** for the generated SPIEC-EASI network. Key metrics include:
 - Modularity
